@@ -1,0 +1,171 @@
+// SPDX-License-Identifier: MIT
+
+pragma solidity ^0.8.13;
+
+contract Vote {
+    
+    enum Gender{M, F}
+    
+    address public electionCommission;
+    uint public winnerID;
+    address public winnerAddress;
+
+    struct Voter {
+        string name;
+        uint age;
+        Gender gender;
+        bool hasVoted;
+        address voterAddress;
+    }
+
+    struct Candidate {
+        string name;
+        string party;
+        uint age;
+        Gender gender;
+        uint candidateId;
+        address candidateAddress;
+        uint votes;
+    }
+
+    uint nextCandidateId = 1;
+
+    uint voterRegistrationStartTime;
+    uint voterRegistrationEndTime;
+
+    uint candidateRegistrationStartTime;
+    uint candidateRegistrationEndTime;
+
+    uint votingStartTime;
+    uint votingEndTime;
+
+    mapping (address => Voter) voterDetails;
+    mapping(uint => Candidate) candidateDetails;
+    Voter[] arrayv;
+    bool stopVoting; //for emergency
+
+    constructor(uint first, uint second, uint third, uint fourth, uint fifth, uint sixth) {
+        electionCommission = msg.sender; //assigning the deployer of the contract Vote as the electionCommission
+        voterRegistrationStartTime = first;
+        voterRegistrationEndTime = second;
+        candidateRegistrationStartTime = third;
+        candidateRegistrationEndTime = fourth;
+        votingStartTime = fifth;
+        votingEndTime = sixth;
+    }
+
+    modifier voterRegistrationStatus() {
+        if(block.timestamp < voterRegistrationStartTime) {
+            revert("Voter Registration not started yet!");
+        }
+        else if(block.timestamp > voterRegistrationEndTime) {
+            revert("Voter Registration Ended!");
+        }
+        _;
+    }
+
+    modifier candidateRegistrationStatus() {
+        if(block.timestamp < candidateRegistrationStartTime) {
+            revert("Candidate Registration not started yet!");
+        }
+        else if(block.timestamp > candidateRegistrationEndTime) {
+            revert("Candidate Registration ended!");
+        }
+        _;
+    }
+
+    modifier votingStatus() {
+        if(block.timestamp < votingStartTime) {
+            revert("Voting not started yet!");
+        }
+        else if(block.timestamp > votingEndTime) {
+            revert("Voting ended!");
+        }
+        else if(stopVoting == true) {
+            revert("Voting is paused!");
+        }
+        _;
+    }
+
+    modifier onlyElectionCommissioner() {
+        require(msg.sender == electionCommission, "Not from election commission!");
+        _;
+    }
+
+    function candidateRegistration(string calldata _name, string calldata _party, uint _age, Gender Male0Female1) external candidateRegistrationStatus() {
+        require(msg.sender != electionCommission, "Election Commission cannot register as a candidate!");
+        require(candidateVerification(msg.sender) == false, "Twice candidate registration not allowed!");
+        require(partyVerification(_party) == false, "Two candidates cannot contest from the same party in a constituency!");
+        require(_age >= 25, "Ineligible to contest in the election!");
+        candidateDetails[nextCandidateId] = Candidate(_name, _party, _age, Male0Female1, nextCandidateId, msg.sender, 0);
+        nextCandidateId++;
+    }
+
+    function candidateVerification(address _person) private view returns(bool) {
+        for(uint i = 1; i < nextCandidateId; i++) {
+            if(candidateDetails[i].candidateAddress == _person) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function partyVerification(string calldata _party) private view returns(bool) {
+        for(uint i = 1; i < nextCandidateId; i++) {
+            if(keccak256(abi.encodePacked(candidateDetails[i].party)) == keccak256(abi.encodePacked(_party))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    //initially- nextCandidateId = 1
+    //After 1st candidate registers- nextCandidateId = 2
+    //Total no. of candidates registered as of now = 1
+
+    function candidateList() public view returns(Candidate[] memory) { //returns entire candidate list
+    Candidate[] memory array = new Candidate[] (nextCandidateId - 1);
+    for(uint i = 1; i < nextCandidateId; i++) {
+        array[i-1] = candidateDetails[i];
+    }
+    return array;
+    }
+
+
+    function voterRegistration(string calldata _name, uint _age, Gender Male0Female1) external voterRegistrationStatus() {
+        require(voterDetails[msg.sender].voterAddress != msg.sender, "Twice voter registration not allowed!");
+        require(_age >= 18, "Ineligible to vote!");
+        voterDetails[msg.sender] = Voter(_name, _age, Male0Female1, false, msg.sender);
+        arrayv.push(voterDetails[msg.sender]);
+    }
+
+    function votersList() view external returns(Voter[] memory) {
+        return arrayv;
+    }
+
+    function vote(uint _candidateId) external votingStatus() {
+        require(voterDetails[msg.sender].voterAddress == msg.sender, "You are not a voter");
+        require(voterDetails[msg.sender].hasVoted == false, "You have already voted!");
+        require(_candidateId >= 1 && _candidateId < nextCandidateId, "No candidate with this Candidate ID contesting election!");
+        voterDetails[msg.sender].hasVoted = true;
+        candidateDetails[_candidateId].votes++;
+    }
+
+    function results() external onlyElectionCommissioner() {
+        uint temp = candidateDetails[1].votes;
+        for(uint i = 2; i < nextCandidateId; i++) {
+            if(temp < candidateDetails[i].votes) {
+                temp = candidateDetails[i].votes;
+                winnerID = i;
+                winnerAddress = candidateDetails[i].candidateAddress;
+            }
+            else if(temp == candidateDetails[i].votes) {
+                revert("Draw! Reconduct elections!");
+            }
+        }
+    }
+
+    function emergency() public onlyElectionCommissioner() {
+        stopVoting = true;
+    }
+}
